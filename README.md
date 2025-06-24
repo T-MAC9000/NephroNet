@@ -190,5 +190,6 @@ For questions or issues:
 1. Check the code comments for detailed explanations
 2. Verify all required packages are installed
 3. Ensure data format matches expected structure
-4. Review file paths and adjust for your system
+4. Review file paths and adjust for your system#
+5. Any issues encountered that have not been resolved by following the previous instructions contact mclarnon-t1@ulster.ac.uk and report said issues
 
