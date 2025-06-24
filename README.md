@@ -2,7 +2,7 @@
 
 ## Overview
 
-NephroNet is a machine learning model designed to predict chronic kidney disease (CKD) progression using neural networks. The model predicts follow-up estimated glomerular filtration rate (eGFR) values based on clinical biomarkers and patient characteristics.
+NephroNet is a patented machine learning model designed to predict chronic kidney disease (CKD) progression using neural networks. The model predicts follow-up estimated glomerular filtration rate (eGFR) values based on clinical biomarkers and patient characteristics.
 
 ## Features
 
