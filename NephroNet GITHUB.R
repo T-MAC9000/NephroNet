@@ -40,10 +40,10 @@ library(cluster)
 set.seed(123)
 ##### ggsave #####
 ggsave(
-  'Influence.tiff',
+  'Importance.tiff',
   plot = ggplot2::last_plot(),
   device = NULL, ##### MAKE SURE TO FIX THIS CHANGE PLOT FROM RESIDUALS TO LASTPLOT
-  path = "",
+  path = "C:\\Users\\Thomas\\Desktop\\CKD NephroNet Randox\\Final Figures",
   scale = 1,
   width = 4000, #35
   height = 3000, #30
@@ -56,7 +56,7 @@ ggsave(
 
 ggplot2::last_plot()
 
-
+nn_model$bestTune
 residuals
 
 dev.off()
@@ -64,7 +64,7 @@ dev.off()
 last_plot()
 
 ##### Data entry #####
-set.seed(123)
+set.seed(1239)
 
 MainData<- as.data.frame(read_excel("C:\\Users\\Thomas\\Desktop\\CKD Sendotype Paper Figures High Quality\\NephroNet with Randox\\CKD EPI.xlsx"))
 #Data Entry
@@ -156,6 +156,9 @@ trainData<-trainData[c(-1,-2)]
 
 formula <- eGFR2 ~.
 
+
+
+
 ##### Correlation Data #####
 
 data <- MainData[c(-1)]  # Data minus ID
@@ -211,11 +214,13 @@ corr_data<-corr_data$`Significant Correlation`
 
 ##### NephroNet Model Building #####
 # Define the training control with random search for hyperparameters
-set.seed(87271)
+set.seed(123)
+
 
 tr_control <- trainControl(
-  method = "cv",                  # Use cross-validation, can use repeatedcv too, add repeats=n,
-  number = 10,                     # 10FCV
+  method = "repeatedcv",                  # Use cross-validation, can use repeatedcv too, add repeats=n,
+  number = 10,  #10FCV
+  repeats = 3,
   allowParallel = TRUE,           # Enable parallel processing
   verboseIter = TRUE,         # Show progress of training
   search = "random",# Random search for hyperparameters
@@ -236,26 +241,32 @@ nn_model <- train(
   linout = TRUE,                    # Linear activation func for back to continuous 
   trace = T,                    # Keep Trace toggled
   maxit = 1000,     
-  preProcess = c("center", "scale"),
+  #preProcess = c("center", "scale"),
   abstol = 1e-6,                   # early stopping
   reltol = 1e-6, # Max iterations 
-  tuneLength = 200    #tune length
+  tuneLength = 200,
+  metric = "RMSE",
+  preProcess = c("center","scale")#tune length
 )
 
 stopCluster(cl) # stop Parallel
 print(nn_model)
 
 nnresults<-nn_model$finalModel
-predictions<-predict(nnresults,testData)
+testData_processed <- predict(nn_model$preProcess, newdata = testData)
 
-testData$eGFR_Followup<-testData$eGFR_Followup
-predictions<-predictions
+predictions<-predict(nnresults,testData_processed)
 
-CA <- lm(log2(testData$eGFR_Followup)~ log2(predictions))
+
+#testData$eGFR_Followup<-2^testData$eGFR_Followup
+#predictions<-2^predictions
+
+
+CA <- lm((testData$eGFR_Followup)~ (predictions))
 
 ggplotRegressionCA <- function(CA) {
   
-  ggplot(CA$model, aes(CA$model$`log2(testData$eGFR_Followup)`, CA$model$`log2(predictions)`)) + 
+  ggplot(CA$model, aes(CA$model$`(testData$eGFR_Followup)`, CA$model$predictions)) + 
     geom_point(col="red",size=4) +
     geom_smooth(method = "lm", col = "black")+#,linetype = "dashed") +
     ylab("NephroNet Predicted log2(eGFR)") +
@@ -282,21 +293,28 @@ ggplotRegressionCA <- function(CA) {
 
 ggplotRegressionCA(CA)
 
-#nn_model$trainingData
 
 ##### Baseline graph #####
 
-predictions<-predict(nnresults,testData) # replace with testData, CVDTesting or synthetic_CVD
+#predictions<-predict(nnresults,testData) # replace with testData, CVDTesting or synthetic_CVD
 
 
 NewDf<-cbind(IDs,MainData)
 NewDf<-split(NewDf,NewDf$ID)
 NewDf<-NewDf$Test
+testData_processed <- predict(nn_model$preProcess, newdata = testData)
 
 
-Actual<-testData$eGFR_Followup
+NewDf<-data.frame(NewDf$eGFR_Followup,NewDf$`Urea (mmol/l)`,NewDf$`Creatinine (umol/L)`,NewDf$`sTNFR1 (ng/ml)`,NewDf$`sTNFR2 (ng/ml)`,NewDf$Gender)
+colnames(NewDf)<-colnames(trainData)
+
+Actual<- predict(nn_model$preProcess, newdata = testData)
 Pred<-predictions
-Baseline<-NewDf$eGFR
+Baseline<- predict(nn_model$preProcess, newdata = NewDf)
+
+Actual<-Actual[c(1)]
+Baseline<-Baseline[c(1)]
+
 
 
 Vis2<-as.data.frame(cbind(2^Actual,2^Pred,Baseline))
@@ -370,173 +388,6 @@ ggplot(data_long, aes(y = predictionss)) +
   )
 
 
-
-
-##### CVD Data Preprocessing #####
-
-CVDCohort<-read_xlsx("C:\\Users\\Thomas\\Downloads\\Anonymous_Final Database.xlsx",sheet=1)
-CVDID<-read_xlsx("C:\\Users\\Thomas\\Downloads\\CKD VHR(2).xlsx")
-CVDCohort<-CVDCohort[CVDCohort$`Patient ID...2` %in% CVDID$`Patient ID`,]
-
-sTNFR1<-CVDCohort$`sTNFR1 / TNFRSF1A (pg/ml) (R&D)`
-sTNFR2<-CVDCohort$`sTNFR2 / TNFRSF1B (pg/ml) (R&D)`
-
-Creat1CVD<-CVDID$`creatinine tp1`
-Creat2CVD<-CVDID$`creatinine tp2`
-AgeCVD<-CVDCohort$Age
-GenderCVD<-CVDCohort$Sex
-
-# Convert to mg/dL
-Creat1CVD_mg_dl <- Creat1CVD / 88.4
-Creat2CVD_mg_dl <- Creat2CVD / 88.4
-
-# Normalize gender input
-
-
-# CKD-EPI 2021 race-free function
-calc_eGFR <- function(creatinine_mg_dl, age, sex){
-  kappa <- ifelse(sex == "F", 0.7, 0.9)
-  alpha <- ifelse(sex == "F", -0.241, -0.302)
-  sex_factor <- ifelse(sex == "F", 1.012, 1)
-  
-  min_part <- pmin(creatinine_mg_dl / kappa, 1)
-  max_part <- pmax(creatinine_mg_dl / kappa, 1)
-  
-  egfr <- 142 * (min_part ^ alpha) * (max_part ^ -1.2) * (0.9938 ^ age) * sex_factor
-  return(egfr)
-}
-
-# Vectorized calculation
-eGFR_CVD <- mapply(calc_eGFR, creatinine_mg_dl = Creat1CVD_mg_dl, 
-                   age = AgeCVD, sex = GenderCVD)
-
-eGFR_Followup <- mapply(calc_eGFR, creatinine_mg_dl = Creat2CVD_mg_dl, 
-                        age = AgeCVD+1, sex = GenderCVD)
-
-CVDTesting<-data.frame(eGFR_Followup,CVDID$`serum urea (mmol/L)`,Creat1CVD_mg_dl,sTNFR1,sTNFR2,eGFR_CVD)
-
-CVDTesting<-log2(CVDTesting)
-
-GenderCVD_num <- ifelse(GenderCVD == "F", 1, 0)
-CVDTesting<-cbind(CVDTesting,GenderCVD_num)
-
-g<-colnames(trainData)
-
-g[6]<-"Baseline"
-g[7]<-"Gender"
-colnames(CVDTesting)<-g #replace testData for CVDTesting
-
-
-##### CVD IMPUTATION #####
-
-library(MASS)
-
-generate_gaussian_synthetic <- function(data, n = 500) {
-  numeric_data <- data[, sapply(data, is.numeric)]
-  mu <- colMeans(numeric_data)
-  sigma <- cov(numeric_data)
-  
-  synthetic_numeric <- mvrnorm(n = n, mu = mu, Sigma = sigma)
-  synthetic_numeric <- as.data.frame(synthetic_numeric)
-  
-  # Add categorical (resampled) gender
-  synthetic_numeric$Gender <- sample(data$Gender, n, replace = TRUE)
-  
-  return(synthetic_numeric)
-}
-
-# Usage
-synthetic_CVD <- generate_gaussian_synthetic(CVDTesting, n = 500)
-
-synthetic_CVD<-as.data.frame(synthetic_CVD) #replace testData for synthetic_CVD
-
-Baseline<-synthetic_CVD$Baseline #replace CKD baseline in baseline graph for synth baseline graph
-
-
-##### Linear Model #####
-
-#rfe_results<-read_rds("C:\\Users\\Thomas\\Desktop\\CKD Sendotype Paper Figures High Quality\\Neural Network\\RFE Neural Network\\BEST MODEL\\RFE Model.rds")
-#predictions<-predict(nn_model,testData)
-
-#predictions<-predict(model$finalModel,testData)
-predsCVD<-predict(nn_model$finalModel,synthetic_CVD) # replace with testData, CVDTesting or synthetic_CVD
-
-CA <- lm(synthetic_CVD$eGFR_Followup~ predsCVD) # replace with testData, CVDTesting or synthetic_CVD
-
-
-ggplotRegressionCA <- function(CA) {
-  
-  ggplot(CA$model, aes(CA$model$`synthetic_CVD$eGFR_Followup`, CA$model$predsCVD)) + 
-    geom_point(col="red",size=4) +
-    geom_smooth(method = "lm", col = "black")+#,linetype = "dashed") +
-    ylab("NephroNet predicted log2(eGFRs)") +
-    xlab("Actual log2(eGFRs)") +
-    #scale_colour_manual(values = cols3)+
-    ggtitle("Linear relationship of NephroNets Predictions of eGFR and Actual eGFR", 
-            subtitle = paste("OLS R² =", signif(summary(CA)$adj.r.squared, 5),
-                             "|  Intercept =", signif(CA$coef[[1]], 5),
-                             "|  Slope =", signif(CA$coef[[2]], 5),
-                             "|  p-value =", signif(summary(CA)$coef[2, 4], 5)))+
-    guides(color = guide_legend(override.aes = list(size = 3)))+
-    theme(
-      plot.title = element_text(size = 20),  # Adjust title size
-      plot.subtitle = element_text(size = 12),  # Adjust subtitle size
-      axis.title.x = element_text(size = 14),  # Adjust x-axis label size
-      axis.title.y = element_text(size = 14),  # Adjust y-axis label size
-      axis.text.x = element_text(size = 10),  # Adjust x-axis tick label size
-      axis.text.y = element_text(size = 10)  # Adjust y-axis tick label size
-    )+
-    theme_bw(base_size = 14)+
-    theme(plot.title = element_text(hjust = 0.5, face = "bold"),  # Center title
-          plot.subtitle = element_text(hjust = 0.5))  # Center subtitle
-} # replace inside of function with testData, CVDTesting or synthetic_CVD
-
-ggplotRegressionCA(CA)
-
-
-
-##### Confusion Matrix for Classification #####
-library(caret)
-library(ggplot2)
-
-# Copy dataset
-tables <- Vis2
-
-# Define directional labels
-tables$ActualTrend <- ifelse(tables$Actual < tables$Baseline, "Declined", "Recovered")
-tables$PredictedTrend <- ifelse(tables$Prediction < tables$Baseline, "Declined", "Recovered")
-
-# Desired order: Declined = top-left
-desired_order <- c("Declined", "Recovered")
-
-# Set levels accordingly
-tables$ActualTrend <- factor(tables$ActualTrend, levels = desired_order)
-tables$PredictedTrend <- factor(tables$PredictedTrend, levels = desired_order)
-
-# Confusion matrix (for stats)
-cm <- confusionMatrix(tables$PredictedTrend, tables$ActualTrend)
-print(cm)
-
-# Create table for plot
-cm_table <- table(Predicted = tables$PredictedTrend, Actual = tables$ActualTrend)
-cm_df <- as.data.frame(cm_table)
-
-# Reapply levels for ggplot control
-cm_df$Predicted <- factor(cm_df$Predicted, levels = rev(desired_order))  # Flip y-axis to put Declined on top
-cm_df$Actual <- factor(cm_df$Actual, levels = desired_order)
-
-# Plot
-ggplot(cm_df, aes(x = Actual, y = Predicted, fill = Freq)) +
-  geom_tile(color = "white") +
-  geom_text(aes(label = Freq), size = 8) +
-  scale_fill_gradientn(colors = rev(hcl.colors(25, "OrRd"))) +
-  scale_y_discrete(limits = rev(desired_order)) + 
-  theme_bw(base_size = 18) +
-  labs(
-    title = "Confusion Matrix: Predicted vs Actual Renal Trajectories",
-    x = "Actual Trajectory (vs Baseline)",
-    y = "Predicted Trajectory (vs Baseline)"
-  )
 
 
 ##### Linear Models of Input Features (Continuous) #####
@@ -662,59 +513,110 @@ library(dplyr)
 library(pROC)
 library(ggplot2)
 
-Df2 <- (Vis2)  # Assuming Vis2 contains eGFR Baseline, Predictions, and Actual values
+# Assume your data frame 'Vis2' has columns: Actual, Prediction, Baseline
 
-# Step 1: Define Binary Outcome (Decline vs Stable/Increase)
-Df2 <- Df2 %>%
-  mutate(Decline = ifelse(Actual < Baseline, 1, 0))  # 1 = Decline, 0 = Stable/Increase
+Df2 <- Vis2 %>%
+  # Step 1: Create binary labels for actual and predicted decline/stable
+  mutate(
+    Actual_Trend = ifelse(Actual < Baseline, 1, 0),       # 1 = Decline, 0 = Stable/Increase
+    Predicted_Trend = ifelse(Prediction < Baseline, 1, 0) # Same for predicted values
+  ) %>%
+  # Step 2: Create a "decline score" = how much Prediction is below Baseline
+  mutate(
+    Decline_Score = Baseline - Prediction
+  )
 
-# Step 2: ROC Analysis using Predicted eGFR as a Threshold
+# Step 3: Calculate classification accuracy
+accuracy <- mean(Df2$Predicted_Trend == Df2$Actual_Trend)
+cat("Trend Classification Accuracy:", round(accuracy, 3), "\n")
 
-#Df2$Actual <- Df2$Actual - Df2$Baseline
-#Df2$Prediction <- Df2$Prediction - Df2$Baseline
-
-# Normalize between 0 and 1
-#normalize <- function(x) {
-# return((x - min(x)) / (max(x) - min(x)))
-#}
-
-#Df2$Actual <- normalize(Df2$Actual)
-#Df2$Prediction <- normalize(Df2$Prediction)
-
-# Generate ROC Curve using normalized predicted values
-roc_curve <- roc(Df2$Decline,Df2$Prediction)
-
+# Step 4: Show confusion matrix
+cat("Confusion Matrix:\n")
+print(table(Predicted = Df2$Predicted_Trend, Actual = Df2$Actual_Trend))
 
 
 
-# Step 3: Confidence Interval via Bootstrapping
-x <- roc(Df2$Decline, Df2$Prediction, plot = TRUE,
-         auc.polygon = TRUE, max.auc.polygon = TRUE, grid = TRUE,
-         print.auc = TRUE, show.thres = TRUE, ci = TRUE,
-         legacy.axes = TRUE)
+# Assuming Df2 from earlier with Actual_Trend and Decline_Score defined
+# e.g.
+# Df2 <- Vis2 %>% mutate(Actual_Trend = ifelse(Actual < Baseline, 1, 0),
+#                       Decline_Score = Baseline - Prediction)
 
-dats <- ci.se(x, conf.level = 0.95, method = "bootstrap",
-              boot.n = 5000, boot.stratified = TRUE, reuse.auc = TRUE,
-              specificities = seq(0, 1, length.out = 25))
+# Step 1: Create ROC object with CI
+roc_curve <- roc(Df2$Actual_Trend, Df2$Decline_Score, ci=TRUE, boot.n=2000, boot.stratified=TRUE)
 
-dat.ci <- data.frame(x = as.numeric(rownames(dats)),
-                     lower = dats[, 1],
-                     upper = dats[, 3])
+# Step 2: Compute CI for sensitivities across specificities
+ci_data <- ci.se(roc_curve, specificities = seq(0, 1, length.out = 25))
 
-# Step 4: Visualize ROC with Confidence Intervals
-LRROC <- ggroc(x, legacy.axes = TRUE) +
+# Organize ci.se output for geom_ribbon
+ci_data <- data.frame(
+  x = as.numeric(rownames(ci_data)),
+  lower = ci_data[,1],
+  upper = ci_data[,3]
+)
+
+# Step 3: Plot using ggroc and add CI ribbon
+LRROC <- ggroc(roc_curve, legacy.axes = TRUE) +
   theme_minimal() +
-  geom_abline(slope = 1, intercept = 1, linetype = "dashed", alpha = 0.7, color = "grey") +
+  geom_abline(slope = 1, intercept = 1, linetype = "dashed", color = "grey", alpha = 0.7) +
   coord_equal() +
-  geom_ribbon(data = dat.ci, aes(x = 1 - x, ymin = lower, ymax = upper), fill = "steelblue", alpha = 0.2) +
-  xlab(expression("1-Specificity")) +
-  ylab(expression("Sensitivity")) +
+  geom_ribbon(data = ci_data, aes(x = 1 - x, ymin = lower, ymax = upper), 
+              fill = "steelblue", alpha = 0.2) +
+  xlab("1 - Specificity") +
+  ylab("Sensitivity") +
   ggtitle("NephroNet Renal Decline Prediction", 
-          paste0("AUC: ", round(x$auc, 3), 
-                 " (95% CI: ", round(x$ci[1], 3), " - ", round(x$ci[3], 3), ")"))+
+          subtitle = paste0("AUC = ", round(roc_curve$auc, 3),
+                            " (95% CI: ", 
+                            round(roc_curve$ci[1], 3), " - ", 
+                            round(roc_curve$ci[3], 3), ")")) +
   theme_bw(base_size = 16)
 
-LRROC
+print(LRROC)
+
+
+
+##### Confusion Matrix for Classification #####
+library(caret)
+library(ggplot2)
+
+# Copy dataset
+tables <- Vis2
+
+# Define directional labels
+tables$ActualTrend <- ifelse(tables$Actual < tables$Baseline, "Declined", "Recovered")
+tables$PredictedTrend <- ifelse(tables$Prediction < tables$Baseline, "Declined", "Recovered")
+
+# Desired order: Declined = top-left
+desired_order <- c("Declined", "Recovered")
+
+# Set levels accordingly
+tables$ActualTrend <- factor(tables$ActualTrend, levels = desired_order)
+tables$PredictedTrend <- factor(tables$PredictedTrend, levels = desired_order)
+
+# Confusion matrix (for stats)
+cm <- confusionMatrix(tables$PredictedTrend, tables$ActualTrend)
+print(cm)
+
+# Create table for plot
+cm_table <- table(Predicted = tables$PredictedTrend, Actual = tables$ActualTrend)
+cm_df <- as.data.frame(cm_table)
+
+# Reapply levels for ggplot control
+cm_df$Predicted <- factor(cm_df$Predicted, levels = rev(desired_order))  # Flip y-axis to put Declined on top
+cm_df$Actual <- factor(cm_df$Actual, levels = desired_order)
+
+# Plot
+ggplot(cm_df, aes(x = Actual, y = Predicted, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = Freq), size = 8) +
+  scale_fill_gradientn(colors = rev(hcl.colors(25, "OrRd"))) +
+  scale_y_discrete(limits = rev(desired_order)) + 
+  theme_bw(base_size = 18) +
+  labs(
+    title = "Confusion Matrix: Predicted vs Actual Renal Trajectories",
+    x = "Actual Trajectory (vs Baseline)",
+    y = "Predicted Trajectory (vs Baseline)"
+  )
+
 
 ##### SHAP 2 #####
 library(iml)
@@ -723,6 +625,8 @@ library(reshape2)
 library(dplyr)
 
 # Set up the predictor using the updated dataset
+
+
 predictor <- Predictor$new(nn_model, data = trainData[, -1])
 predictor$task <- "regression"
 
@@ -821,6 +725,221 @@ ggplot(feature_importance, aes(x = Feature, y = Percent_Influence)) +
 
 
 
+##### CVD Data Preprocessing #####
+
+CVDCohort<-read_xlsx("C:\\Users\\Thomas\\Downloads\\Anonymous_Final Database.xlsx",sheet=1)
+CVDID<-read_xlsx("C:\\Users\\Thomas\\Downloads\\CKD VHR(2).xlsx")
+CVDCohort<-CVDCohort[CVDCohort$`Patient ID...2` %in% CVDID$`Patient ID`,]
+
+sTNFR1<-CVDCohort$`sTNFR1 / TNFRSF1A (pg/ml) (R&D)`/1000
+sTNFR2<-CVDCohort$`sTNFR2 / TNFRSF1B (pg/ml) (R&D)`/1000
+
+Creat1CVD<-CVDID$`creatinine tp1`
+Creat2CVD<-CVDID$`creatinine tp2`
+AgeCVD<-CVDCohort$Age
+GenderCVD<-CVDCohort$Sex
+
+# Convert to mg/dL
+Creat1CVD_mg_dl <- Creat1CVD / 88.4
+Creat2CVD_mg_dl <- Creat2CVD / 88.4
+
+# Normalize gender input
+
+
+# CKD-EPI 2021 race-free function
+calc_eGFR <- function(creatinine_mg_dl, age, sex){
+  kappa <- ifelse(sex == "F", 0.7, 0.9)
+  alpha <- ifelse(sex == "F", -0.241, -0.302)
+  sex_factor <- ifelse(sex == "F", 1.012, 1)
+  
+  min_part <- pmin(creatinine_mg_dl / kappa, 1)
+  max_part <- pmax(creatinine_mg_dl / kappa, 1)
+  
+  egfr <- 142 * (min_part ^ alpha) * (max_part ^ -1.2) * (0.9938 ^ age) * sex_factor
+  return(egfr)
+}
+
+# Vectorized calculation
+eGFR_CVD <- mapply(calc_eGFR, creatinine_mg_dl = Creat1CVD_mg_dl, 
+                   age = AgeCVD, sex = GenderCVD)
+
+eGFR_Followup <- mapply(calc_eGFR, creatinine_mg_dl = Creat2CVD_mg_dl, 
+                        age = AgeCVD+1, sex = GenderCVD)
+
+CVDTesting<-data.frame(eGFR_Followup,CVDID$`serum urea (mmol/L)`,Creat1CVD_mg_dl,sTNFR1,sTNFR2,eGFR_CVD)
+
+CVDTesting<-log2(CVDTesting)
+
+GenderCVD_num <- ifelse(GenderCVD == "F", 1, 0)
+CVDTesting<-cbind(CVDTesting,GenderCVD_num)
+
+g<-colnames(trainData)
+
+g[6]<-"Baseline"
+g[7]<-"Gender"
+colnames(CVDTesting)<-g #replace testData for CVDTesting
+
+
+##### CVD IMPUTATION #####
+
+library(MASS)
+
+generate_gaussian_synthetic <- function(data, n = 500) {
+  numeric_data <- data[, sapply(data, is.numeric)]
+  mu <- colMeans(numeric_data)
+  sigma <- cov(numeric_data)
+  
+  synthetic_numeric <- mvrnorm(n = n, mu = mu, Sigma = sigma)
+  synthetic_numeric <- as.data.frame(synthetic_numeric)
+  
+  # Add categorical (resampled) gender
+  synthetic_numeric$Gender <- sample(data$Gender, n, replace = TRUE)
+  
+  return(synthetic_numeric)
+}
+
+# Usage
+synthetic_CVD <- generate_gaussian_synthetic(CVDTesting, n = 500)
+
+synthetic_CVD<-as.data.frame(synthetic_CVD) #replace testData for synthetic_CVD
+
+Baseline<-synthetic_CVD$Baseline #replace CKD baseline in baseline graph for synth baseline graph
+
+
+##### Linear Model #####
+
+#rfe_results<-read_rds("C:\\Users\\Thomas\\Desktop\\CKD Sendotype Paper Figures High Quality\\Neural Network\\RFE Neural Network\\BEST MODEL\\RFE Model.rds")
+#predictions<-predict(nn_model,testData)
+
+#predictions<-predict(model$finalModel,testData)
+#synth_processed <- predict(nn_model$preProcess, newdata = CVDTesting)
+
+predsCVD<-predict(nn_model,synthetic_CVD) # replace with testData, CVDTesting or synthetic_CVD
+
+
+CA <- lm(synthetic_CVD$eGFR_Followup~ predsCVD) # replace with testData, CVDTesting or synthetic_CVD
+
+
+ggplotRegressionCA <- function(CA) {
+  
+  ggplot(CA$model, aes(CA$model$`synthetic_CVD$eGFR_Followup`, CA$model$predsCVD)) + 
+    geom_point(col="red",size=4) +
+    geom_smooth(method = "lm", col = "black")+#,linetype = "dashed") +
+    ylab("NephroNet predicted log2(eGFRs)") +
+    xlab("Actual log2(eGFRs)") +
+    #scale_colour_manual(values = cols3)+
+    ggtitle("Linear relationship of NephroNets Predictions of eGFR and Actual eGFR", 
+            subtitle = paste("OLS R² =", signif(summary(CA)$adj.r.squared, 5),
+                             "|  Intercept =", signif(CA$coef[[1]], 5),
+                             "|  Slope =", signif(CA$coef[[2]], 5),
+                             "|  p-value =", signif(summary(CA)$coef[2, 4], 5)))+
+    guides(color = guide_legend(override.aes = list(size = 3)))+
+    theme(
+      plot.title = element_text(size = 20),  # Adjust title size
+      plot.subtitle = element_text(size = 12),  # Adjust subtitle size
+      axis.title.x = element_text(size = 14),  # Adjust x-axis label size
+      axis.title.y = element_text(size = 14),  # Adjust y-axis label size
+      axis.text.x = element_text(size = 10),  # Adjust x-axis tick label size
+      axis.text.y = element_text(size = 10)  # Adjust y-axis tick label size
+    )+
+    theme_bw(base_size = 14)+
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"),  # Center title
+          plot.subtitle = element_text(hjust = 0.5))  # Center subtitle
+} # replace inside of function with testData, CVDTesting or synthetic_CVD
+
+ggplotRegressionCA(CA)
+
+
+
+sd<-2^CVDTesting
+pd<-2^predsCVD
+
+
+
+
+
+
+
+
+CA <- lm(sd$eGFR_Followup~ pd) # replace with testData, CVDTesting or synthetic_CVD
+
+
+ggplotRegressionCA <- function(CA) {
+  
+  ggplot(CA$model, aes(CA$model$`sd$eGFR_Followup`, CA$model$pd)) + 
+    geom_point(col="red",size=4) +
+    geom_smooth(method = "lm", col = "black")+#,linetype = "dashed") +
+    ylab("NephroNet predicted log2(eGFRs)") +
+    xlab("Actual log2(eGFRs)") +
+    #scale_colour_manual(values = cols3)+
+    ggtitle("Linear relationship of NephroNets Predictions of eGFR and Actual eGFR", 
+            subtitle = paste("OLS R² =", signif(summary(CA)$adj.r.squared, 5),
+                             "|  Intercept =", signif(CA$coef[[1]], 5),
+                             "|  Slope =", signif(CA$coef[[2]], 5),
+                             "|  p-value =", signif(summary(CA)$coef[2, 4], 5)))+
+    guides(color = guide_legend(override.aes = list(size = 3)))+
+    theme(
+      plot.title = element_text(size = 20),  # Adjust title size
+      plot.subtitle = element_text(size = 12),  # Adjust subtitle size
+      axis.title.x = element_text(size = 14),  # Adjust x-axis label size
+      axis.title.y = element_text(size = 14),  # Adjust y-axis label size
+      axis.text.x = element_text(size = 10),  # Adjust x-axis tick label size
+      axis.text.y = element_text(size = 10)  # Adjust y-axis tick label size
+    )+
+    theme_bw(base_size = 14)+
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"),  # Center title
+          plot.subtitle = element_text(hjust = 0.5))  # Center subtitle
+} # replace inside of function with testData, CVDTesting or synthetic_CVD
+
+ggplotRegressionCA(CA)
+
+
+
+##### Residuals #####
+# Assuming predictions and testData$eGFR_Followup are both log2 transformed but NOT scaled/centered
+
+# Back-transform from log2 to original scale
+Predicted <- 2^(predsCVD)
+Actual <- 2^(synthetic_CVD$eGFR_Followup)
+
+
+
+plot(Actual,Predicted)
+
+# Create a data frame for plotting residuals
+Data <- data.frame(Actual = Actual, Predicted = Predicted)
+
+# Calculate residuals on original scale
+Data$Residuals <- Data$Actual - Data$Predicted
+
+# Summary stats
+avg_residuals <- mean(Data$Residuals)
+RMSE <- sqrt(mean(Data$Residuals^2))
+STD <- sd(Data$Residuals)
+print(STD)
+
+# Plot residuals vs actual
+library(ggplot2)
+residuals_plot <- ggplot(Data, aes(x = Actual, y = Residuals)) +
+  geom_point(size = 3, colour = "slategray4") +  
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Actual eGFR", y = "Residuals (Actual - Predicted)") +
+  ggtitle("Residuals vs Actual Values from NephroNet",
+          subtitle = paste("Residuals = Actual - Predicted",
+                           "| Avg Residual =", signif(avg_residuals, 5),
+                           "| RMSE =", signif(RMSE, 5))) +
+  theme_bw(base_size = 24) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5, size = 18)
+  )
+
+print(residuals_plot)
+print(Data)
+
+
+
+
 ##### QC Histograms ####
 
 Original<-CVDTesting
@@ -887,3 +1006,6 @@ for(i in 1:length(Original)){
 
 
 # Example: comparing two continuous distributions
+
+
+
