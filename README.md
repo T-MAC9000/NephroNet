@@ -1,46 +1,95 @@
-# NephroNet: Neural Network for Chronic Kidney Disease Progression Prediction
+# NephroNet: Neural Network for Kidney Function Prediction
 
 ## Overview
 
-NephroNet is a patented machine learning model designed to predict chronic kidney disease (CKD) progression using neural networks. The model predicts follow-up estimated glomerular filtration rate (eGFR) values based on clinical biomarkers and patient characteristics.
+NephroNet is a machine learning project that uses neural networks to predict kidney function decline in patients with Chronic Kidney Disease (CKD). The model predicts follow-up estimated Glomerular Filtration Rate (eGFR) values using clinical biomarkers and patient characteristics.
 
 ## Features
 
-- **Neural Network Prediction**: Uses neural networks to predict eGFR progression
-- **Feature Analysis**: Correlation analysis and SHAP value interpretation
-- **Cross-Validation**: 10-fold cross-validation for robust model evaluation
+- **Neural Network Model**: Uses `caret` package with `nnet` method for regression
+- **Feature Analysis**: Correlation analysis and feature importance using SHAP values
+- **Model Validation**: Multiple validation approaches including external cohort validation
+- **Visualization**: Comprehensive plotting for model performance, feature relationships, and predictions
+- **ROC Analysis**: Binary classification for kidney function decline prediction
 - **Synthetic Data Generation**: Gaussian synthetic data generation for model validation
-- **Comprehensive Visualization**: Multiple plotting functions for model interpretation
-- **ROC Analysis**: Receiver Operating Characteristic curves for classification performance
 
-## Data Requirements
-
-### Input Features
-- **Urea** (mmol/L)
-- **Creatinine** (µmol/L) 
-- **sTNFR1** (ng/mL) - Soluble TNF Receptor 1
-- **sTNFR2** (ng/mL) - Soluble TNF Receptor 2
-- **Gender** (Male/Female)
-- **Baseline eGFR** (mL/min per 1.73m²)
-
-### Target Variable
-- **Follow-up eGFR** (mL/min per 1.73m²)
-
-## Installation
+## Dependencies
 
 ### Required R Packages
 
 ```r
-# Core packages
-install.packages(c(
-  "writexl", "ggplot2", "parallel", "Cairo", "doParallel",
-  "reshape2", "corrplot", "finalfit", "fmsb", "FactoMineR",
-  "neuralnet", "matrixStats", "pathfindR", "caret", "readxl",
-  "fpc", "ggforce", "clValid", "umap", "magick", "dplyr",
-  "pheatmap", "ggrepel", "tidyverse", "rstatix", "caTools",
-  "rlang", "tidyr", "gtools", "ggstatsplot", "ggfortify",
-  "factoextra", "boot", "cluster", "MASS", "iml", "pROC"
-))
+# Core ML and Data Processing
+library(caret)
+library(neuralnet)
+library(parallel)
+library(doParallel)
+
+# Data Manipulation
+library(dplyr)
+library(tidyverse)
+library(tidyr)
+library(readxl)
+library(writexl)
+
+# Visualization
+library(ggplot2)
+library(ggrepel)
+library(ggforce)
+library(ggstatsplot)
+library(ggfortify)
+library(pheatmap)
+library(corrplot)
+
+# Statistical Analysis
+library(reshape2)
+library(rstatix)
+library(boot)
+library(cluster)
+library(fpc)
+library(pROC)
+
+# Feature Analysis
+library(iml)          # For SHAP analysis
+library(factoextra)
+library(FactoMineR)
+
+# Additional Utilities
+library(Cairo)
+library(magick)
+library(caTools)
+library(MASS)
+```
+
+## Data Requirements
+
+### Input Data Structure
+
+The main dataset should be an Excel file with the following columns:
+
+- `Patient ID`: Unique identifier
+- `Age (years)`: Patient age
+- `Urea (mmol/l)`: Serum urea levels
+- `Creatinine (umol/L)`: Serum creatinine levels
+- `eGFR`: Baseline estimated Glomerular Filtration Rate
+- `eGFR_Followup`: Follow-up eGFR (target variable)
+- `Gender`: Patient sex (Male/Female)
+- `Diabetes (E10-E14)`: Diabetes status
+- `CVD`: Cardiovascular disease status
+- `sTNFR1 (ng/ml)`: Soluble TNF Receptor 1 levels
+- `sTNFR2 (ng/ml)`: Soluble TNF Receptor 2 levels
+
+### File Paths
+
+Update the following file paths in the script:
+```r
+# Main dataset
+MainData <- read_excel("path/to/your/CKD_EPI.xlsx")
+
+# Feature correlation data
+Feats <- read_xlsx("path/to/your/Feature_Cross.xlsx")
+
+# External validation cohort
+CVDCohort <- read_xlsx("path/to/your/Anonymous_Final_Database.xlsx")
 ```
 
 ## Usage
@@ -48,41 +97,44 @@ install.packages(c(
 ### 1. Data Preparation
 
 ```r
-# Load your data
-MainData <- read_excel("path/to/your/data.xlsx")
+# Set seed for reproducibility
+set.seed(123)
 
-# The script expects columns:
-# - Patient ID
-# - Age (years) 
-# - Urea (mmol/l)
-# - Creatinine (umol/L)
-# - eGFR (baseline)
-# - eGFR_Followup
-# - Gender
-# - Diabetes (E10-E14)
-# - CVD
-# - Biomarker columns (sTNFR1, sTNFR2)
+# Load and clean data
+MainData <- read_excel("your_data_file.xlsx")
+MainData <- na.omit(MainData)
+
+# Split data into train/test
+splitR <- sample.split(DataFrame$eGFR_Followup, SplitRatio = 0.70)
+trainData <- subset(DataFrame, splitR == TRUE)
+testData <- subset(DataFrame, splitR == FALSE)
 ```
 
 ### 2. Model Training
 
 ```r
-# Set seed for reproducibility
-set.seed(123)
+# Define training control
+tr_control <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 3,
+  allowParallel = TRUE,
+  verboseIter = TRUE,
+  search = "random"
+)
 
-# Train the neural network model
+# Train neural network
 nn_model <- train(
-  x = trainData[c(-1)],           
-  y = trainData$eGFR_Followup,                          
-  method = "nnet",                  
-  trControl = tr_control,           
-  linout = TRUE,                    
-  trace = TRUE,                    
-  maxit = 1000,     
-  preProcess = c("center", "scale"),
-  abstol = 1e-6,                   
-  reltol = 1e-6,
-  tuneLength = 200
+  x = trainData[c(-1)],
+  y = trainData$eGFR_Followup,
+  method = "nnet",
+  trControl = tr_control,
+  linout = TRUE,
+  trace = TRUE,
+  maxit = 1000,
+  tuneLength = 200,
+  metric = "RMSE",
+  preProcess = c("center", "scale")
 )
 ```
 
@@ -90,106 +142,104 @@ nn_model <- train(
 
 ```r
 # Make predictions
-predictions <- predict(nn_model$finalModel, testData)
+predictions <- predict(nn_model, testData)
 
-# Evaluate performance
-CA <- lm(log2(testData$eGFR_Followup) ~ log2(predictions))
+# Calculate performance metrics
+CA <- lm(testData$eGFR_Followup ~ predictions)
 summary(CA)
+
+# Generate performance visualizations
+ggplotRegressionCA(CA)
 ```
 
-### 4. Feature Importance Analysis
+### 4. Feature Analysis
 
 ```r
-# SHAP values for feature importance
+# SHAP analysis for feature importance
 predictor <- Predictor$new(nn_model, data = trainData[, -1])
 shapley <- Shapley$new(predictor, x.interest = trainData[1, -1])
+
+# Generate SHAP summary plot
+SHAP_plot <- ggplot(SHAP_long, aes(x = `SHAP Value`, y = Feature, color = `Feature Value`)) +
+  geom_jitter(width = 0.1, alpha = 1) +
+  scale_color_gradient2(low = "dodgerblue3", mid = "gray90", high = "firebrick3")
 ```
 
 ## Key Functions
 
-### Data Processing
-- **calc_eGFR()**: Calculates eGFR using CKD-EPI 2021 race-free formula
-- **generate_gaussian_synthetic()**: Generates synthetic data for validation
+### Model Visualization
+- `ggplotRegressionCA()`: Creates scatter plots with regression lines and statistics
+- ROC curve generation for binary classification of kidney function decline
+- Confusion matrix visualization for trend prediction
 
-### Visualization
-- **ggplotRegressionCA()**: Creates regression plots with statistics
-- **Correlation heatmaps**: Feature correlation analysis
-- **SHAP summary plots**: Feature importance visualization
-- **ROC curves**: Classification performance evaluation
+### Feature Analysis
+- Correlation analysis between input features and target variable
+- SHAP (SHapley Additive exPlanations) values for feature importance
+- Individual feature relationship plots
 
-### Model Validation
-- **Confusion matrices**: Classification accuracy assessment
-- **Bootstrap confidence intervals**: ROC curve confidence bounds
-- **Kolmogorov-Smirnov tests**: Synthetic vs. original data comparison
+### External Validation
+- CVD cohort validation using separate dataset
+- Synthetic data generation using multivariate Gaussian distribution
+- Distribution comparison between original and synthetic data
 
 ## Output Files
 
-The script generates multiple visualizations saved as TIFF files:
-- Correlation plots
-- Regression analyses
-- Feature importance plots
-- ROC curves
-- Distribution comparisons
-- Confusion matrices
+The script generates several output files:
 
-## Model Performance Metrics
+- **Model Performance**: Regression plots, ROC curves, confusion matrices
+- **Feature Analysis**: Correlation plots, SHAP summary plots, individual feature relationships
+- **Validation Results**: External cohort performance, synthetic data comparisons
+- **Residual Analysis**: Residual plots for model diagnostics
 
-- **R² values**: Regression performance
-- **AUC scores**: Classification performance
-- **Sensitivity/Specificity**: Diagnostic accuracy
-- **Bootstrap confidence intervals**: Statistical reliability
+All plots are saved as high-resolution TIFF files (350 DPI) suitable for publication.
 
-## File Structure
+## Model Architecture
 
-```
-project/
-├── data/
-│   ├── CKD EPI.xlsx
-│   ├── Feature Cross.xlsx
-│   └── Anonymous_Final Database.xlsx
-├── models/
-│   └── saved_models.rds
-├── figures/
-│   ├── correlations/
-│   ├── regressions/
-│   └── validation/
-└── README.md
-```
+- **Algorithm**: Neural Network (single hidden layer)
+- **Activation**: Linear output layer for regression
+- **Training**: 10-fold cross-validation with 3 repeats
+- **Hyperparameter Optimization**: Random search with 200 iterations
+- **Preprocessing**: Center and scale normalization
+- **Early Stopping**: Absolute and relative tolerance thresholds
 
-## Notes
+## Performance Metrics
 
-- **Parallel Processing**: The script uses parallel processing for faster model training
-- **Cross-Validation**: 10-fold cross-validation ensures robust model evaluation
-- **Data Transformation**: Log2 transformation applied to continuous variables
-- **Synthetic Validation**: Gaussian synthetic data generation for external validation
-- **Reproducibility**: Set seed values ensure reproducible results
+- **Regression**: R², RMSE, slope, intercept
+- **Classification**: AUC, sensitivity, specificity, accuracy
+- **Feature Importance**: Mean absolute SHAP values
+- **Model Validation**: External cohort performance, residual analysis
 
-## Clinical Relevance
+## Clinical Applications
 
-NephroNet addresses the critical need for predicting CKD progression by:
-- Integrating multiple biomarkers (sTNFR1, sTNFR2)
-- Providing interpretable predictions through SHAP analysis
-- Supporting clinical decision-making for patient monitoring
-- Enabling early intervention strategies
+This model can be used for:
+- Predicting future kidney function in CKD patients
+- Identifying patients at risk of rapid kidney function decline
+- Supporting clinical decision-making in nephrology
+- Research into biomarkers associated with kidney disease progression
 
-## Limitations
 
-- Model trained on specific patient populations
-- Requires complete biomarker data
-- Performance may vary across different clinical settings
-- External validation recommended before clinical deployment
-- Small sample sizes may capture untrue global patterns
+## Contact
 
-## Citation
+[mclarnon-t1@ulster.ac.uk]
 
-If you use this code or methodology, please cite the associated research paper and acknowledge the NephroNet framework; #UPDATE WHEN PUBLISHED#
+## Version History
 
-## Support
+- v1.0: Initial release with basic neural network implementation
+- v1.1: Added SHAP analysis and external validation
+- v1.2: Implemented synthetic data generation and ROC analysis
 
-For questions or issues:
-1. Check the code comments for detailed explanations
-2. Verify all required packages are installed
-3. Ensure data format matches expected structure
-4. Review file paths and adjust for your system#
-5. Any issues encountered that have not been resolved by following the previous instructions contact mclarnon-t1@ulster.ac.uk and report said issues
+## Troubleshooting
+
+### Common Issues
+
+1. **Memory Issues**: Reduce `tuneLength` parameter if running out of memory
+2. **Convergence Problems**: Increase `maxit` or adjust tolerance parameters
+3. **Missing Data**: Ensure all required columns are present in input data
+4. **File Path Errors**: Update all file paths to match your directory structure
+
+### Performance Optimization
+
+- Use parallel processing for faster training
+- Adjust cross-validation folds based on dataset size
+- Consider feature selection to reduce model complexity
 
